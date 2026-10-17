@@ -95,9 +95,10 @@
             </button>
         </div>
 
+        <!-- 更新：将 Firefox 151+ 加入支持列表 -->
         <div class="notice" id="compatNotice">
             Your browser does not support the Document Picture-in-Picture API.
-            Please use Chrome or Edge 116 or later.
+            Please use Chrome or Edge 116+, or Firefox 151+.
         </div>
     </main>
 
@@ -109,13 +110,9 @@
         const compatNotice = document.getElementById('compatNotice');
 
         /* ==================== State ==================== */
-        // Blob URL for the image currently shown in the preview
         let previewImageBlobUrl = null;
-
-        // Mutex flag: prevents concurrent calls to requestWindow()
         let isOpeningPip = false;
 
-        // Whether the browser supports Document PiP
         const isPipSupported = 'documentPictureInPicture' in window;
 
         /* ==================== Initialization ==================== */
@@ -125,7 +122,6 @@
 
         /* ==================== Utilities ==================== */
 
-        // Close any existing PiP window in this tab (synchronous)
         function closeExistingPipWindow() {
             const existingWindow = window.documentPictureInPicture?.window;
             if (existingWindow) {
@@ -133,13 +129,11 @@
             }
         }
 
-        // Centralize button state so it stays consistent across handlers
         function updatePipButtonState() {
             const canOpen = isPipSupported && !isOpeningPip && !!previewImageBlobUrl;
             pipButton.disabled = !canOpen;
         }
 
-        // Release the preview Blob URL to avoid memory leaks
         function releasePreviewUrl() {
             if (previewImageBlobUrl) {
                 URL.revokeObjectURL(previewImageBlobUrl);
@@ -152,13 +146,11 @@
             const file = event.target.files[0];
             if (!file) return;
 
-            // Reject switching while PiP is opening, to avoid URL lifetime races
             if (isOpeningPip) {
                 alert('A Picture-in-Picture window is opening. Please try again in a moment.');
                 return;
             }
 
-            // Close any open PiP window before revoking the URL it may reference
             closeExistingPipWindow();
             releasePreviewUrl();
 
@@ -175,23 +167,18 @@
 
         /* ==================== Event: Open PiP Window ==================== */
         pipButton.addEventListener('click', async () => {
-            // Triple guard: unsupported / no image / already opening
             if (!isPipSupported || !previewImageBlobUrl || isOpeningPip) {
                 return;
             }
 
-            // Lock and disable the button synchronously to block re-entry
             isOpeningPip = true;
             updatePipButtonState();
 
-            // Snapshot the URL so it cannot be overwritten during await
             const imageUrlForPip = previewImageBlobUrl;
 
             try {
-                // Close the old window first (synchronous)
                 closeExistingPipWindow();
 
-                // Request a new window; isOpeningPip blocks other entry points
                 const pipWindow = await documentPictureInPicture.requestWindow({
                     width: 400,
                     height: 300,
