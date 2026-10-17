@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片置顶画中画</title>
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: #f5f6f7;
+            color: #222;
+        }
+
+        .container {
+            width: 90%;
+            max-width: 460px;
+            padding: 32px;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+        }
+
+        .title { margin: 0 0 6px; font-size: 1.15rem; font-weight: 600; }
+        .subtitle { margin: 0 0 24px; font-size: 0.85rem; color: #6b7280; }
+
+        .preview {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 180px;
+            margin-bottom: 20px;
+            background: #fafafa;
+            border: 1px dashed #d1d5db;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .preview img { display: block; max-width: 100%; max-height: 300px; }
+        .preview-placeholder { font-size: 0.85rem; color: #9ca3af; }
+
+        .controls { display: flex; flex-direction: column; gap: 10px; }
+        .file-input { display: none; }
+
+        .btn {
+            padding: 10px 16px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .btn-upload { background: #fff; color: #222; border-color: #d1d5db; }
+        .btn-upload:hover { background: #f3f4f6; }
+        .btn-pip { background: #1f2937; color: #fff; }
+        .btn-pip:hover:not(:disabled) { background: #111827; }
+
+        .notice {
+            display: none;
+            margin-top: 16px;
+            padding: 10px 14px;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            color: #92400e;
+            background: #fffbeb;
+            border: 1px solid #fde68a;
+            border-radius: 6px;
+        }
+        .notice.is-visible { display: block; }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <h1 class="title">图片置顶画中画</h1>
+        <p class="subtitle">上传图片，一键让图片悬浮在所有窗口之上。</p>
+
+        <div class="preview" id="previewArea">
+            <span class="preview-placeholder">尚未选择图片</span>
+        </div>
+
+        <div class="controls">
+            <label class="btn btn-upload" for="fileInput">选择图片</label>
+            <input class="file-input" type="file" id="fileInput" accept="image/*">
+
+            <button class="btn btn-pip" id="pipButton" disabled>
+                在画中画窗口中置顶
+            </button>
+        </div>
+
+        <div class="notice" id="compatNotice">
+            当前浏览器不支持 Document Picture-in-Picture API。
+            请使用 Chrome 或 Edge 116 及以上版本。
+        </div>
+    </main>
+
+    <script>
+        /* ==================== 元素引用 ==================== */
+        const fileInput    = document.getElementById('fileInput');
+        const previewArea  = document.getElementById('previewArea');
+        const pipButton    = document.getElementById('pipButton');
+        const compatNotice = document.getElementById('compatNotice');
+
+        /* ==================== 状态 ==================== */
+        // 预览区当前图片的 Blob URL
+        let previewImageBlobUrl = null;
+
+        // 互斥锁：防止并发调用 requestWindow()
+        let isOpeningPip = false;
+
+        // 浏览器是否支持 Document PiP
+        const isPipSupported = 'documentPictureInPicture' in window;
+
+        /* ==================== 初始化 ==================== */
+        if (!isPipSupported) {
+            compatNotice.classList.add('is-visible');
+        }
+
+        /* ==================== 工具函数 ==================== */
+
+        // 关闭当前标签页已存在的 PiP 窗口（同步操作）
+        function closeExistingPipWindow() {
+            const existingWindow = window.documentPictureInPicture?.window;
+            if (existingWindow) {
+                existingWindow.close();
+            }
+        }
+
+        // 统一维护按钮可用状态，避免多处逻辑分散
+        function updatePipButtonState() {
+            const canOpen = isPipSupported && !isOpeningPip && !!previewImageBlobUrl;
+            pipButton.disabled = !canOpen;
+        }
+
+        // 释放预览区的 Blob URL
+        function releasePreviewUrl() {
+            if (previewImageBlobUrl) {
+                URL.revokeObjectURL(previewImageBlobUrl);
+                previewImageBlobUrl = null;
+            }
+        }
+
+        /* ==================== 事件：选择图片 ==================== */
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            // 若 PiP 正在打开中，拒绝本次切换，避免 URL 生命周期竞争
+            if (isOpeningPip) {
+                alert('画中画窗口正在打开，请稍后再选择图片。');
+                return;
+            }
+
+            // 先关闭已打开的 PiP 窗口，再释放它引用的 URL
+            closeExistingPipWindow();
+            releasePreviewUrl();
+
+            previewImageBlobUrl = URL.createObjectURL(file);
+
+            previewArea.innerHTML = '';
+            const previewImage = document.createElement('img');
+            previewImage.src = previewImageBlobUrl;
+            previewImage.alt = '已选择的图片';
+            previewArea.appendChild(previewImage);
+
+            updatePipButtonState();
+        });
+
+        /* ==================== 事件：打开画中画窗口 ==================== */
+        pipButton.addEventListener('click', async () => {
+            // 三重防护：不支持 / 没图片 / 正在打开中，一律拒绝
+            if (!isPipSupported || !previewImageBlobUrl || isOpeningPip) {
+                return;
+            }
+
+            // 上锁并同步禁用按钮，杜绝并发请求
+            isOpeningPip = true;
+            updatePipButtonState();
+
+            // 快照当前 URL，避免 await 期间被 change handler 覆盖
+            const imageUrlForPip = previewImageBlobUrl;
+
+            try {
+                // 先关闭旧窗口（同步生效）
+                closeExistingPipWindow();
+
+                // 请求新窗口——此时 isOpeningPip 为 true，其他入口无法重入
+                const pipWindow = await documentPictureInPicture.requestWindow({
+                    width: 400,
+                    height: 300,
+                });
+
+                const style = pipWindow.document.createElement('style');
+                style.textContent = `
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    body {
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 100vw;
+                        height: 100vh;
+                        background: #111;
+                        overflow: hidden;
+                    }
+                    img {
+                        max-width: 100%;
+                        max-height: 100%;
+                        object-fit: contain;
+                    }
+                `;
+                pipWindow.document.head.appendChild(style);
+
+                const pipImage = pipWindow.document.createElement('img');
+                pipImage.src = imageUrlForPip;
+                pipImage.alt = '置顶显示的图片';
+                pipWindow.document.body.appendChild(pipImage);
+            } catch (error) {
+                console.error('打开画中画窗口失败：', error);
+                alert(
+                    '无法打开画中画窗口。可能原因：\n' +
+                    '1. 浏览器不允许弹出窗口；\n' +
+                    '2. 其他标签页已打开画中画窗口（Chrome/Edge 全局仅允许一个）。'
+                );
+            } finally {
+                isOpeningPip = false;
+                updatePipButtonState();
+            }
+        });
+    </script>
+</body>
+</html>
