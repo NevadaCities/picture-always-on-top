@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>图片置顶画中画</title>
+    <title>Image PiP</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='6' y='10' width='42' height='32' rx='6' fill='%239ca3af'/%3E%3Crect x='16' y='22' width='42' height='32' rx='6' fill='%231f2937'/%3E%3Ccircle cx='28' cy='32' r='3.5' fill='%23f5f6f7'/%3E%3Cpath d='M22 52 L31 40 L37 46 L43 40 L52 52 Z' fill='%23f5f6f7'/%3E%3C/svg%3E">
     <style>
         * { box-sizing: border-box; }
 
@@ -78,53 +79,53 @@
 </head>
 <body>
     <main class="container">
-        <h1 class="title">图片置顶画中画</h1>
-        <p class="subtitle">上传图片，一键让图片悬浮在所有窗口之上。</p>
+        <h1 class="title">Image PiP</h1>
+        <p class="subtitle">Upload an image and pin it above all other windows.</p>
 
         <div class="preview" id="previewArea">
-            <span class="preview-placeholder">尚未选择图片</span>
+            <span class="preview-placeholder">No image selected</span>
         </div>
 
         <div class="controls">
-            <label class="btn btn-upload" for="fileInput">选择图片</label>
+            <label class="btn btn-upload" for="fileInput">Choose Image</label>
             <input class="file-input" type="file" id="fileInput" accept="image/*">
 
             <button class="btn btn-pip" id="pipButton" disabled>
-                在画中画窗口中置顶
+                Pin in Picture-in-Picture
             </button>
         </div>
 
         <div class="notice" id="compatNotice">
-            当前浏览器不支持 Document Picture-in-Picture API。
-            请使用 Chrome 或 Edge 116 及以上版本。
+            Your browser does not support the Document Picture-in-Picture API.
+            Please use Chrome or Edge 116 or later.
         </div>
     </main>
 
     <script>
-        /* ==================== 元素引用 ==================== */
+        /* ==================== Element References ==================== */
         const fileInput    = document.getElementById('fileInput');
         const previewArea  = document.getElementById('previewArea');
         const pipButton    = document.getElementById('pipButton');
         const compatNotice = document.getElementById('compatNotice');
 
-        /* ==================== 状态 ==================== */
-        // 预览区当前图片的 Blob URL
+        /* ==================== State ==================== */
+        // Blob URL for the image currently shown in the preview
         let previewImageBlobUrl = null;
 
-        // 互斥锁：防止并发调用 requestWindow()
+        // Mutex flag: prevents concurrent calls to requestWindow()
         let isOpeningPip = false;
 
-        // 浏览器是否支持 Document PiP
+        // Whether the browser supports Document PiP
         const isPipSupported = 'documentPictureInPicture' in window;
 
-        /* ==================== 初始化 ==================== */
+        /* ==================== Initialization ==================== */
         if (!isPipSupported) {
             compatNotice.classList.add('is-visible');
         }
 
-        /* ==================== 工具函数 ==================== */
+        /* ==================== Utilities ==================== */
 
-        // 关闭当前标签页已存在的 PiP 窗口（同步操作）
+        // Close any existing PiP window in this tab (synchronous)
         function closeExistingPipWindow() {
             const existingWindow = window.documentPictureInPicture?.window;
             if (existingWindow) {
@@ -132,13 +133,13 @@
             }
         }
 
-        // 统一维护按钮可用状态，避免多处逻辑分散
+        // Centralize button state so it stays consistent across handlers
         function updatePipButtonState() {
             const canOpen = isPipSupported && !isOpeningPip && !!previewImageBlobUrl;
             pipButton.disabled = !canOpen;
         }
 
-        // 释放预览区的 Blob URL
+        // Release the preview Blob URL to avoid memory leaks
         function releasePreviewUrl() {
             if (previewImageBlobUrl) {
                 URL.revokeObjectURL(previewImageBlobUrl);
@@ -146,18 +147,18 @@
             }
         }
 
-        /* ==================== 事件：选择图片 ==================== */
+        /* ==================== Event: Image Selection ==================== */
         fileInput.addEventListener('change', (event) => {
             const file = event.target.files[0];
             if (!file) return;
 
-            // 若 PiP 正在打开中，拒绝本次切换，避免 URL 生命周期竞争
+            // Reject switching while PiP is opening, to avoid URL lifetime races
             if (isOpeningPip) {
-                alert('画中画窗口正在打开，请稍后再选择图片。');
+                alert('A Picture-in-Picture window is opening. Please try again in a moment.');
                 return;
             }
 
-            // 先关闭已打开的 PiP 窗口，再释放它引用的 URL
+            // Close any open PiP window before revoking the URL it may reference
             closeExistingPipWindow();
             releasePreviewUrl();
 
@@ -166,31 +167,31 @@
             previewArea.innerHTML = '';
             const previewImage = document.createElement('img');
             previewImage.src = previewImageBlobUrl;
-            previewImage.alt = '已选择的图片';
+            previewImage.alt = 'Selected image';
             previewArea.appendChild(previewImage);
 
             updatePipButtonState();
         });
 
-        /* ==================== 事件：打开画中画窗口 ==================== */
+        /* ==================== Event: Open PiP Window ==================== */
         pipButton.addEventListener('click', async () => {
-            // 三重防护：不支持 / 没图片 / 正在打开中，一律拒绝
+            // Triple guard: unsupported / no image / already opening
             if (!isPipSupported || !previewImageBlobUrl || isOpeningPip) {
                 return;
             }
 
-            // 上锁并同步禁用按钮，杜绝并发请求
+            // Lock and disable the button synchronously to block re-entry
             isOpeningPip = true;
             updatePipButtonState();
 
-            // 快照当前 URL，避免 await 期间被 change handler 覆盖
+            // Snapshot the URL so it cannot be overwritten during await
             const imageUrlForPip = previewImageBlobUrl;
 
             try {
-                // 先关闭旧窗口（同步生效）
+                // Close the old window first (synchronous)
                 closeExistingPipWindow();
 
-                // 请求新窗口——此时 isOpeningPip 为 true，其他入口无法重入
+                // Request a new window; isOpeningPip blocks other entry points
                 const pipWindow = await documentPictureInPicture.requestWindow({
                     width: 400,
                     height: 300,
@@ -218,14 +219,14 @@
 
                 const pipImage = pipWindow.document.createElement('img');
                 pipImage.src = imageUrlForPip;
-                pipImage.alt = '置顶显示的图片';
+                pipImage.alt = 'Pinned image';
                 pipWindow.document.body.appendChild(pipImage);
             } catch (error) {
-                console.error('打开画中画窗口失败：', error);
+                console.error('Failed to open the Picture-in-Picture window:', error);
                 alert(
-                    '无法打开画中画窗口。可能原因：\n' +
-                    '1. 浏览器不允许弹出窗口；\n' +
-                    '2. 其他标签页已打开画中画窗口（Chrome/Edge 全局仅允许一个）。'
+                    'Unable to open the Picture-in-Picture window. Possible reasons:\n' +
+                    '1. The browser is blocking pop-up windows;\n' +
+                    '2. Another tab already has a PiP window open (Chrome/Edge allow only one globally).'
                 );
             } finally {
                 isOpeningPip = false;
