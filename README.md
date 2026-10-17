@@ -25,17 +25,23 @@ Picture-in-Picture windows using the
 
 Requires the Document Picture-in-Picture API:
 
-| Browser       | Status          |
-| ------------- | --------------- |
-| Chrome / Edge | 116+ ✅         |
-| Firefox       | Not supported ❌ |
-| Safari        | Not supported ❌ |
+| Browser        | Status                          |
+| -------------- | ------------------------------- |
+| Chrome / Edge  | 116+ ✅ (Full support)          |
+| Firefox        | 151+ ⚠️ (Preview support)      |
+| Safari         | Not supported ❌                |
+| Chrome Android | Not supported ❌                |
+
+> **Note:** Firefox 151+ supports the API on desktop platforms, but MDN
+> currently lists it as **preview support** rather than full support.
+> Firefox for Android 151+ is also listed with preview support.
 
 ## Limitations
 
-- **One PiP window globally.** Chrome and Edge allow only one PiP
-  window across all tabs. Opening a new one replaces the previous,
-  and a PiP window in another tab will block this page's request.
+- **One PiP window per tab.** The spec limits each tab to one PiP
+  window. Chrome and Edge further restrict this to **one globally
+  across all tabs**; opening a new one replaces the previous, and a
+  PiP window in another tab will block this page's request.
 - **Always on top is by design.** The API has no option to disable it;
   the window cannot be pushed behind other windows without
   system-level tools.
