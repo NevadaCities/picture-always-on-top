@@ -58,8 +58,8 @@
             transition: background 0.15s, border-color 0.15s;
         }
         .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-        .btn-upload { background: #fff; color: #222; border-color: #d1d5db; }
-        .btn-upload:hover { background: #f3f4f6; }
+        .btn-secondary { background: #fff; color: #222; border-color: #d1d5db; }
+        .btn-secondary:hover:not(:disabled) { background: #f3f4f6; }
         .btn-pip { background: #1f2937; color: #fff; }
         .btn-pip:hover:not(:disabled) { background: #111827; }
 
@@ -87,15 +87,18 @@
         </div>
 
         <div class="controls">
-            <label class="btn btn-upload" for="fileInput">Choose Image</label>
+            <label class="btn btn-secondary" for="fileInput">Choose Image</label>
             <input class="file-input" type="file" id="fileInput" accept="image/*">
+
+            <button class="btn btn-secondary" id="pasteButton" type="button">
+                Paste Image from Clipboard
+            </button>
 
             <button class="btn btn-pip" id="pipButton" disabled>
                 Pin in Picture-in-Picture
             </button>
         </div>
 
-        <!-- 更新：将 Firefox 151+ 加入支持列表 -->
         <div class="notice" id="compatNotice">
             Your browser does not support the Document Picture-in-Picture API.
             Please use Chrome or Edge 116+, or Firefox 151+.
@@ -106,22 +109,42 @@
         /* ==================== Element References ==================== */
         const fileInput    = document.getElementById('fileInput');
         const previewArea  = document.getElementById('previewArea');
+        const pasteButton  = document.getElementById('pasteButton');
         const pipButton    = document.getElementById('pipButton');
         const compatNotice = document.getElementById('compatNotice');
 
+        /* ==================== Capability Detection ==================== */
+        // Document Picture-in-Picture API
+        const isPipSupported = 'documentPictureInPicture' in window;
+
+        // Async Clipboard API: read() must exist (requires a secure context)
+        const isClipboardReadSupported =
+            !!(navigator.clipboard && typeof navigator.clipboard.read === 'function');
+
         /* ==================== State ==================== */
+        // Blob URL for the image currently shown in the preview
         let previewImageBlobUrl = null;
+
+        // Mutex flag: prevents concurrent calls to requestWindow()
         let isOpeningPip = false;
 
-        const isPipSupported = 'documentPictureInPicture' in window;
+        // Mutex flag: prevents concurrent clipboard reads
+        let isReadingClipboard = false;
 
         /* ==================== Initialization ==================== */
         if (!isPipSupported) {
             compatNotice.classList.add('is-visible');
         }
 
+        if (!isClipboardReadSupported) {
+            pasteButton.title =
+                'Clipboard reading is not available in this browser. ' +
+                'A secure (HTTPS) context and a modern browser are required.';
+        }
+
         /* ==================== Utilities ==================== */
 
+        // Close any existing PiP window in this tab (synchronous)
         function closeExistingPipWindow() {
             const existingWindow = window.documentPictureInPicture?.window;
             if (existingWindow) {
@@ -129,11 +152,18 @@
             }
         }
 
+        // Centralize PiP button state
         function updatePipButtonState() {
             const canOpen = isPipSupported && !isOpeningPip && !!previewImageBlobUrl;
             pipButton.disabled = !canOpen;
         }
 
+        // Centralize paste button state
+        function updatePasteButtonState() {
+            pasteButton.disabled = !isClipboardReadSupported || isReadingClipboard;
+        }
+
+        // Release the preview Blob URL to avoid memory leaks
         function releasePreviewUrl() {
             if (previewImageBlobUrl) {
                 URL.revokeObjectURL(previewImageBlobUrl);
@@ -141,20 +171,20 @@
             }
         }
 
-        /* ==================== Event: Image Selection ==================== */
-        fileInput.addEventListener('change', (event) => {
-            const file = event.target.files[0];
-            if (!file) return;
-
+        // Shared entry point: put a Blob into the preview area.
+        // Returns true on success, false when the operation was rejected.
+        function loadImageBlob(blob) {
+            // Reject while a PiP window is being created, to avoid
+            // revoking a URL that the pending request still references.
             if (isOpeningPip) {
                 alert('A Picture-in-Picture window is opening. Please try again in a moment.');
-                return;
+                return false;
             }
 
             closeExistingPipWindow();
             releasePreviewUrl();
 
-            previewImageBlobUrl = URL.createObjectURL(file);
+            previewImageBlobUrl = URL.createObjectURL(blob);
 
             previewArea.innerHTML = '';
             const previewImage = document.createElement('img');
@@ -163,6 +193,93 @@
             previewArea.appendChild(previewImage);
 
             updatePipButtonState();
+            return true;
+        }
+
+        // Map clipboard error names to user-facing messages
+        function handleClipboardError(error) {
+            console.error('Failed to read from clipboard:', error);
+
+            switch (error.name) {
+                case 'NotAllowedError':
+                    alert(
+                        'Clipboard access was denied. Please allow clipboard permission ' +
+                        'for this site, then try again.'
+                    );
+                    break;
+                case 'DataError':
+                    alert('The clipboard is empty or its contents cannot be read.');
+                    break;
+                case 'NotFoundError':
+                    alert(
+                        'Clipboard reading is not available in this context. ' +
+                        'Make sure the page is served over HTTPS or from localhost.'
+                    );
+                    break;
+                case 'SecurityError':
+                    alert(
+                        'Clipboard access is blocked for security reasons. ' +
+                        'Make sure the page is served over HTTPS.'
+                    );
+                    break;
+                default:
+                    alert('Unable to read the clipboard: ' + (error.message || error.name));
+            }
+        }
+
+        /* ==================== Event: Choose Image ==================== */
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            loadImageBlob(file);
+            // Reset so the same file can be selected again later
+            fileInput.value = '';
+        });
+
+        /* ==================== Event: Paste Image from Clipboard ==================== */
+        pasteButton.addEventListener('click', async () => {
+            // Guard: unsupported / already reading
+            if (!isClipboardReadSupported || isReadingClipboard) {
+                return;
+            }
+
+            isReadingClipboard = true;
+            updatePasteButtonState();
+
+            try {
+                const clipboardItems = await navigator.clipboard.read();
+
+                // Edge case 1: clipboard is empty
+                if (clipboardItems.length === 0) {
+                    alert('The clipboard is empty. Copy an image first, then try again.');
+                    return;
+                }
+
+                // Edge case 2: find the first item that contains an image type
+                let imageBlob = null;
+                for (const item of clipboardItems) {
+                    const imageType = item.types.find(type => type.startsWith('image/'));
+                    if (imageType) {
+                        imageBlob = await item.getType(imageType);
+                        break;
+                    }
+                }
+
+                // Edge case 3: clipboard holds data, but none of it is an image
+                if (!imageBlob) {
+                    alert('The clipboard does not contain an image.');
+                    return;
+                }
+
+                loadImageBlob(imageBlob);
+            } catch (error) {
+                // Edge case 4: permission denied, insecure context, unsupported, etc.
+                handleClipboardError(error);
+            } finally {
+                isReadingClipboard = false;
+                updatePasteButtonState();
+            }
         });
 
         /* ==================== Event: Open PiP Window ==================== */
@@ -174,6 +291,7 @@
             isOpeningPip = true;
             updatePipButtonState();
 
+            // Snapshot the URL so it cannot be overwritten during await
             const imageUrlForPip = previewImageBlobUrl;
 
             try {
