@@ -49,6 +49,10 @@
         .file-input { display: none; }
 
         .btn {
+            /* 使用 Flex 布局确保 label 和 button 元素文字完美居中 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
             padding: 10px 16px;
             font-family: inherit;
             font-size: 0.9rem;
@@ -57,9 +61,12 @@
             cursor: pointer;
             transition: background 0.15s, border-color 0.15s;
         }
+        
         .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        
         .btn-secondary { background: #fff; color: #222; border-color: #d1d5db; }
         .btn-secondary:hover:not(:disabled) { background: #f3f4f6; }
+        
         .btn-pip { background: #1f2937; color: #fff; }
         .btn-pip:hover:not(:disabled) { background: #111827; }
 
@@ -114,21 +121,13 @@
         const compatNotice = document.getElementById('compatNotice');
 
         /* ==================== Capability Detection ==================== */
-        // Document Picture-in-Picture API
         const isPipSupported = 'documentPictureInPicture' in window;
-
-        // Async Clipboard API: read() must exist (requires a secure context)
-        const isClipboardReadSupported =
+        const isClipboardReadSupported = 
             !!(navigator.clipboard && typeof navigator.clipboard.read === 'function');
 
         /* ==================== State ==================== */
-        // Blob URL for the image currently shown in the preview
         let previewImageBlobUrl = null;
-
-        // Mutex flag: prevents concurrent calls to requestWindow()
         let isOpeningPip = false;
-
-        // Mutex flag: prevents concurrent clipboard reads
         let isReadingClipboard = false;
 
         /* ==================== Initialization ==================== */
@@ -143,8 +142,6 @@
         }
 
         /* ==================== Utilities ==================== */
-
-        // Close any existing PiP window in this tab (synchronous)
         function closeExistingPipWindow() {
             const existingWindow = window.documentPictureInPicture?.window;
             if (existingWindow) {
@@ -152,18 +149,15 @@
             }
         }
 
-        // Centralize PiP button state
         function updatePipButtonState() {
             const canOpen = isPipSupported && !isOpeningPip && !!previewImageBlobUrl;
             pipButton.disabled = !canOpen;
         }
 
-        // Centralize paste button state
         function updatePasteButtonState() {
             pasteButton.disabled = !isClipboardReadSupported || isReadingClipboard;
         }
 
-        // Release the preview Blob URL to avoid memory leaks
         function releasePreviewUrl() {
             if (previewImageBlobUrl) {
                 URL.revokeObjectURL(previewImageBlobUrl);
@@ -171,11 +165,7 @@
             }
         }
 
-        // Shared entry point: put a Blob into the preview area.
-        // Returns true on success, false when the operation was rejected.
         function loadImageBlob(blob) {
-            // Reject while a PiP window is being created, to avoid
-            // revoking a URL that the pending request still references.
             if (isOpeningPip) {
                 alert('A Picture-in-Picture window is opening. Please try again in a moment.');
                 return false;
@@ -196,31 +186,20 @@
             return true;
         }
 
-        // Map clipboard error names to user-facing messages
         function handleClipboardError(error) {
             console.error('Failed to read from clipboard:', error);
-
             switch (error.name) {
                 case 'NotAllowedError':
-                    alert(
-                        'Clipboard access was denied. Please allow clipboard permission ' +
-                        'for this site, then try again.'
-                    );
+                    alert('Clipboard access was denied. Please allow clipboard permission for this site.');
                     break;
                 case 'DataError':
                     alert('The clipboard is empty or its contents cannot be read.');
                     break;
                 case 'NotFoundError':
-                    alert(
-                        'Clipboard reading is not available in this context. ' +
-                        'Make sure the page is served over HTTPS or from localhost.'
-                    );
+                    alert('Clipboard reading is not available. Make sure the page is served over HTTPS or localhost.');
                     break;
                 case 'SecurityError':
-                    alert(
-                        'Clipboard access is blocked for security reasons. ' +
-                        'Make sure the page is served over HTTPS.'
-                    );
+                    alert('Clipboard access is blocked for security reasons.');
                     break;
                 default:
                     alert('Unable to read the clipboard: ' + (error.message || error.name));
@@ -231,32 +210,24 @@
         fileInput.addEventListener('change', (event) => {
             const file = event.target.files[0];
             if (!file) return;
-
             loadImageBlob(file);
-            // Reset so the same file can be selected again later
             fileInput.value = '';
         });
 
         /* ==================== Event: Paste Image from Clipboard ==================== */
         pasteButton.addEventListener('click', async () => {
-            // Guard: unsupported / already reading
-            if (!isClipboardReadSupported || isReadingClipboard) {
-                return;
-            }
+            if (!isClipboardReadSupported || isReadingClipboard) return;
 
             isReadingClipboard = true;
             updatePasteButtonState();
 
             try {
                 const clipboardItems = await navigator.clipboard.read();
-
-                // Edge case 1: clipboard is empty
                 if (clipboardItems.length === 0) {
                     alert('The clipboard is empty. Copy an image first, then try again.');
                     return;
                 }
 
-                // Edge case 2: find the first item that contains an image type
                 let imageBlob = null;
                 for (const item of clipboardItems) {
                     const imageType = item.types.find(type => type.startsWith('image/'));
@@ -266,7 +237,6 @@
                     }
                 }
 
-                // Edge case 3: clipboard holds data, but none of it is an image
                 if (!imageBlob) {
                     alert('The clipboard does not contain an image.');
                     return;
@@ -274,7 +244,6 @@
 
                 loadImageBlob(imageBlob);
             } catch (error) {
-                // Edge case 4: permission denied, insecure context, unsupported, etc.
                 handleClipboardError(error);
             } finally {
                 isReadingClipboard = false;
@@ -284,19 +253,15 @@
 
         /* ==================== Event: Open PiP Window ==================== */
         pipButton.addEventListener('click', async () => {
-            if (!isPipSupported || !previewImageBlobUrl || isOpeningPip) {
-                return;
-            }
+            if (!isPipSupported || !previewImageBlobUrl || isOpeningPip) return;
 
             isOpeningPip = true;
             updatePipButtonState();
 
-            // Snapshot the URL so it cannot be overwritten during await
             const imageUrlForPip = previewImageBlobUrl;
 
             try {
                 closeExistingPipWindow();
-
                 const pipWindow = await documentPictureInPicture.requestWindow({
                     width: 400,
                     height: 300,
@@ -328,11 +293,7 @@
                 pipWindow.document.body.appendChild(pipImage);
             } catch (error) {
                 console.error('Failed to open the Picture-in-Picture window:', error);
-                alert(
-                    'Unable to open the Picture-in-Picture window. Possible reasons:\n' +
-                    '1. The browser is blocking pop-up windows;\n' +
-                    '2. Another tab already has a PiP window open (Chrome/Edge allow only one globally).'
-                );
+                alert('Unable to open the Picture-in-Picture window. Check popup permissions or other open PiP windows.');
             } finally {
                 isOpeningPip = false;
                 updatePipButtonState();
